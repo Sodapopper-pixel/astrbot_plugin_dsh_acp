@@ -1,25 +1,10 @@
 name: "astrbot_plugin_dsh_acp"
 display_name: "DSH ACP 连接器"
 short_desc: "把 DeepSeek Harness 通过 ACP 接入 AstrBot：任务委派、会话接手与只读订阅"
-version: "0.4.1"
+version: "0.4.2"
 author: "terk"
 desc: |
-  通过官方 ACP 协议把 **DeepSeek Harness (DSH)** 接入 AstrBot。DSH 与 AstrBot 平级：
-  AstrBot 负责聊天编排与转述，DSH 负责编码、文件操作、命令执行这类长任务。
-
-  **主要能力**
-  - **任务委派**：`/dsh <任务>` 或 LLM 工具 `dsh_delegate` 后台派活，结算后回报到聊天；
-    执行中再发一条即「插话」（终止当前轮，带上下文重发）
-  - **会话接手**：`/dsh use` 接下任意持久会话继续用，支持翻时间线（`peek`）与状态简报（`brief`）
-  - **只读会话订阅**：`/dsh watch` 订阅你自己正在桌面端用的会话，每轮输出完毕把结果回报到本聊天，
-    不占写句柄、与桌面端同时使用互不冲突
-  - **模型与 effort 切换**：`/dsh model`、`/dsh effort`，可设为该聊天首选，新会话自动沿用
-
-  **回报机制**：默认 `pull` 模式——正文先入待读队列，只发一条 XML 系统事件短提醒唤起 bot，
-  由 bot 调 `dsh(op='reports')` 取正文后用自己的语气转述。正文不进对话历史，因此不会污染长期记忆。
-  另提供 `llm`（旧行为）与 `direct`（直推原文）两种模式。
-
-  **要求**：DSH 0.2.1 系列（提供 `--profile acp`）、Node.js、AstrBot 4.28.1 实测通过。
+  通过官方 ACP 协议把 DeepSeek Harness 接入 AstrBot。可实现新建、接管与订阅会话，选择会话模型、切换推理档位，查看历史消息等。让bot全面接管DSH
 repo: "https://github.com/Sodapopper-pixel/astrbot_plugin_dsh_acp"
 astrbot_version: ">=4.5.7"
 support_platforms:

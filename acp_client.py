@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import collections
 import json
-import logging
 import os
 import shutil
+
+from astrbot.api import logger as _astrbot_logger
 
 
 class AcpError(Exception):
@@ -63,7 +64,7 @@ class DshAcpClient:
         self._node_bin = node_bin or shutil.which("node") or "node"
         self._env_extra = dict(env_extra or {})
         self._permission_policy = permission_policy if permission_policy in ("allow", "reject") else "allow"
-        self._log = logger or logging.getLogger("astrbot_plugin_dsh_acp")
+        self._log = logger if logger is not None else _astrbot_logger
         self._proc: asyncio.subprocess.Process | None = None
         self._pump_tasks: list[asyncio.Task] = []
         self._pending: dict[int, asyncio.Future] = {}
