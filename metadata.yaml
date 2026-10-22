@@ -1,7 +1,7 @@
 name: "astrbot_plugin_dsh_acp"
 display_name: "DSH ACP 连接器"
 short_desc: "把 DeepSeek Harness 通过 ACP 接入 AstrBot：任务委派、会话接手与只读订阅"
-version: "0.4.2"
+version: "0.4.3"
 author: "terk"
 desc: |
   通过官方 ACP 协议把 DeepSeek Harness 接入 AstrBot。可实现新建、接管与订阅会话，选择会话模型、切换推理档位，查看历史消息等。让bot全面接管DSH

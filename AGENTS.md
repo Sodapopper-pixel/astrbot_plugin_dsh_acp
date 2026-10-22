@@ -16,7 +16,18 @@
 - `session_log.py` — 持久化会话日志解析：zstd 多帧解压（优先 python `zstandard` 的 `stream_reader(read_across_frames=True)`；模块缺失时兜底外部 `zstd` 可执行文件，可用环境变量 `ZSTD_EXE` 指定路径）、cwd→目录名编码（`--<path-with-dashes>--` 形态）、v4 jsonl 事件流解析、`tail_summary`（接手尾部判定）与 `page`（时间线翻页），按 (mtime,size) 缓存。DSH 官方 ACP **不提供**读 transcript 的方法，这个模块就是补这块的——但持久化格式是内部实现无兼容承诺，跨版本升级要回验。
 - `registry.py` — `ChatRegistry`：聊天 ↔ ACP 会话映射，JSON 持久化到 `<astrbot data>/plugin_data/astrbot_plugin_dsh_acp/registry.json`（原子写，tmp+replace）。get 返回 **deepcopy**，改完必须 `put(key, rec)`。
 - `ops.py` — **op 目录单一事实源**：`OPS` 表（op → summary/args/cmd/need）同时驱动模型侧目录（`dsh(op='help')`，按当前状态裁剪）、聊天侧帮助（`/dsh help`）、未知 op 提示与 `RESERVED` 词表。改 op 只改这张表。
-- `main.py` — Star 插件。命令入口 `/dsh`（`event_message_type` + 正则 + `stop_event`）。LLM 工具面只有 **2 个**：`dsh_delegate(task, mode, workspace)` 与 `dsh(op, arg, arg2, flag)` 单入口。**llm_tool docstring 的 Args 不能写 `event:` 行**；新增能力只扩 op 不加注册。
+- `main.py` — Star 插件。命令入口 `/dsh`（**`@command("dsh", alias={"/dsh"}, priority=500)`** + 内部正则二次解析子命令，见下方「命令注册」）。LLM 工具面只有 **2 个**：`dsh_delegate(task, mode, workspace)` 与 `dsh(op, arg, arg2, flag)` 单入口。**llm_tool docstring 的 Args 不能写 `event:` 行**；新增能力只扩 op 不加注册。
+
+## 命令注册（必须用 `@command`，不要用 `event_message_type` 自己抓正则）
+
+**踩过的坑**：`/dsh` 最初写成 `@event_message_type(EventMessageType.ALL, priority=500)` + 函数体内 `DSH_RE` 正则匹配。功能上能跑（日志里每条消息都出现 `plugin -> astrbot_plugin_dsh_acp - dsh_entry`），但它是**监听器**不是**指令**：AstrBot 的指令管理体系（`command_management._build_descriptor`）只认 `CommandFilter`/`CommandGroupFilter`/`RegexFilter`，于是 WebUI「指令管理」里查不到 `/dsh`、插件详情页把 `dsh_entry` 归到「事件监听器」、聊天输入框也没有 `/dsh` 补全。用户反馈表现为"所有指令都显示没注册"。
+
+**修法**：`@command("dsh", alias={"/dsh"}, priority=500)`。两个细节缺一不可：
+
+1. **`alias={"/dsh"}` 不是冗余**。`CommandFilter.filter` 用 `message_str.startswith(f"{full_cmd} ")` 或等值匹配，而唤醒阶段只在**命中 `wake_prefix`** 时才剥离前缀（`At` 唤醒和私聊唤醒都**不剥离**，`message_str` 原样保留前导 `/`）。本机 `wake_prefix` 是空数组 `[]`，所以实际收到的是 `/dsh status`，只有 `dsh` 这个主名会匹配失败；补了 `/dsh` 别名后两种形态都通。
+2. **`priority=500`** 保留原监听器的排序位置（registry 按 `-priority` 降序，数字越大越先）。
+
+`@command` 不带参数声明时 `handler_params` 为空，不会解析位置参数，所以函数体里**继续用 `DSH_RE` 拆子命令**——这是有意的：`/dsh <任意任务文本>` 的剩余部分必须整段当任务描述，交给 `GreedyStr` 反而会丢失原文里的空格语义。改完 `_build_descriptor` 能识别出 `type=command, command='dsh'`，验证方式见文末探针。
 
 ## 接手信息面（口径）
 
@@ -92,6 +103,16 @@ StopReason 枚举：`end_turn / max_tokens / max_turn_requests / refusal / cance
 - **并发控制**：`_client_lock` 只保护 spawn/stop；每聊天键 `_submit_locks[k]` 序列化委派/插话。LLM tool `interrupt=False` 不抢占，返回忙提示。
 - **权限**：默认 `permission_policy=allow` → 自动回 `allow-once`；极简策略，无持续授权（桥本身只提供一次性选项）。
 
+## 权限闸门（`require_admin`）
+
+**口径照抄内置 shell 工具**：`event.role` 由 `WakingCheckStage` 依据 **当前配置档** 的 `admins_id` 写入（`_api_key_allow_admin_role` 额外放行 API-key 调用），插件不另维护白名单。`_admin_denied()` 在事件不是 trusted、且 `require_admin=true`、且 `event.role != "admin"` 时返回 True。
+
+**⚠️ 排查前先认清「哪个档」**：AstrBot 支持多配置档（`data/config/abconf_<uuid>.json`），按平台路由（`preferences.umop_config_routing`，形如 `{"QQ:*:*": "<uuid>", "bot2号:*:*": "<uuid>"}`）。`core_lifecycle` 为**每个 `conf_id` 各建一个 pipeline scheduler**（`PipelineContext(ab_config, ..., conf_id, db)`），所以 `event.role` 取的是消息所属平台那个档的 `admins_id`。**`data/cmd_config.json` 只是默认/全局档，不代表 QQ 平台看到的列表**——本机实测 QQ 档是 `["astrbot","2162131623"]`，而全局档是 `["astrbot","8447D96B…"]`（后者是 Lark openid），只翻全局档会得出"管理员被拒"的错误结论。
+
+三个入口都要过闸：`dsh_entry`（`/dsh`，回中文提示后 `return`，不再落到 HELP）、`dsh` 与 `dsh_delegate` 两个 llm_tool（返回英文 `Permission denied...` 串，措辞对齐 `check_admin_permission`，让主 LLM 知道该让用户去加 ID）。工具 docstring **不提**权限要求——闸门在运行时静默生效，模型不该把"需要管理员"当成拒绝用户的理由。
+
+**短提醒必须豁免，且必须带上原键**：`_relay_llm` 合成的事件 sender 是 `dsh-bridge`（或 bot 自己），既不是管理员也会算出不同的 `_key()`。故合成事件打两个 extra：`dsh_acp_trusted=True`（免闸门）与 `dsh_acp_key=<原聊天键>`（`_key()` 优先读它）。漏掉后者会让 bot 调 `dsh(op='reports')` 时查到空记录、回报"没有待读回报"——`llm` 模式直推正文同样要传 `origin_key`。
+
 ## 踩坑与约束
 
 - **AstrBot 工具 docstring 校验**：llm_tool 的 docstring Args 里**不能写 `event:` 行**（缺类型注解会 register 失败 ValueError），只写业务参数 `name(string): ...`。
@@ -114,3 +135,23 @@ sys.path.insert(0, "<本插件目录绝对路径>")
 from acp_client import DshAcpClient   # start → new_session(临时目录) → prompt → stop
 ```
 跑完必须清理探针脚本与临时工作区残留（会话本身无 delete API，会留残档）。
+
+**校验指令注册是否生效**（不用起 AstrBot，用桌面版自带 Python）：
+
+```python
+import importlib.util, os, sys
+sys.path.insert(0, r"D:/AstrBot/backend/app")
+PKG = r"<本插件目录绝对路径>"
+spec = importlib.util.spec_from_file_location("astrbot_plugin_dsh_acp", os.path.join(PKG, "main.py"), submodule_search_locations=[PKG])
+mod = importlib.util.module_from_spec(spec); sys.modules["astrbot_plugin_dsh_acp"] = mod
+spec.loader.exec_module(mod)
+from astrbot.core.star.star_handler import star_handlers_registry
+from astrbot.core.star.command_management import _build_descriptor
+for h in star_handlers_registry:
+    if "dsh_acp" in (h.handler_module_path or ""):
+        d = _build_descriptor(h)
+        print(h.handler_name, "->", (d.effective_command, d.command_type) if d else "非指令")
+# 期望: dsh_entry -> ('dsh', 'command')
+```
+
+线上等效校验：`GET /api/v1/plugins/astrbot_plugin_dsh_acp` 的 `components` 里应出现 `{"type":"command","name":"dsh","display_type":"指令"}`；若显示 `type=listener` / `display_type=事件监听器`，说明装饰器退回了监听器写法。

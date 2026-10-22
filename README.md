@@ -53,6 +53,9 @@ bot 调 dsh(op='reports') 取正文，用自己的语气转述到群里
 
 ## 命令
 
+`/dsh` 注册为标准 AstrBot 指令，因此会出现在 WebUI 的「指令管理」面板里（可被重命名、禁用、调整权限）。
+`/dsh` 与 `dsh` 两种写法都能触发：唤醒词剥离前缀与否都能匹配上。
+
 | 命令 | 作用 |
 |---|---|
 | `/dsh <任务>` | 后台委派；执行中再发即插话（终止当前轮并重发） |
@@ -73,6 +76,23 @@ bot 调 dsh(op='reports') 取正文，用自己的语气转述到群里
 | `/dsh reload` | 重启 ACP 桥进程 |
 
 每个「聊天 + 发送者」组合对应一个独立 DSH 会话；私聊、群聊互不干扰。
+
+### 谁可以用（权限）
+
+`require_admin` 默认开启：**非管理员**发送 `/dsh …` 会被直接拒绝并回一条提示（附上自己的 ID），
+bot 侧调用 `dsh` / `dsh_delegate` 工具也会返回 `Permission denied`。判定口径与 AstrBot 内置 shell 工具一致——
+读 `WakingCheckStage` 打上的 `event.role`，来源是 WebUI 里的**管理员 ID 列表**；不额外维护白名单。
+
+> ⚠️ 管理员判定读的是**当前消息所用配置档**的 `admins_id`，不是全局那份。AstrBot 支持多配置档
+> （`data/config/abconf_*.json`，按平台路由，见 `preferences.umop_config_routing`），每个档有独立的
+> `admins_id`。排查「明明是管理员却被拒」时，先确认消息所属平台路由到哪个档，再看那个档的列表——
+> 只翻 `data/cmd_config.json` 容易看错档。
+>
+> 另外同一用户在不同接入方式下 ID 形态不同：aiocqhttp（NcatBot/Lagrange 等）是数字 QQ 号，
+> qq_official 是长串 openid。用 `/sid` 看当前会话回传的是哪一种。
+
+插件自己派发的完成回报（`pull` 模式的短提醒）不是用户输入，不受此闸门影响，照常送达。
+若你确实想让所有人可用，把 `require_admin` 关掉即可。
 
 ## 会话监视（watch 模式）
 
@@ -143,6 +163,7 @@ DSH 跑完一轮后怎么把结果送到你面前，由 `report_mode` 决定：
 | `tail_chars` | `1200` | 接手会话时返回的尾部消息长度上限 |
 | `watch_interval` | `8` | watch 模式轮询间隔（秒，clamp 3–300） |
 | `permission_policy` | `allow` | DSH 的权限请求自动应答（`allow` / `reject`）。不应答会永久挂起该轮 |
+| `require_admin` | `true` | 仅管理员可用：非管理员的 `/dsh` 指令与 DSH 工具调用一律拒绝（口径同内置 shell，依据 WebUI 管理员 ID 列表） |
 | `preferred_model` / `preferred_reasoning_effort` | 空 | 新会话自动应用的模型 / effort |
 | `auto_apply_preferred` | `true` | 是否自动应用上两项 |
 | `foreground_budget_sec` | `110` | 前台模式等待预算；超时自动转后台继续（AstrBot 工具执行硬上限约 120 秒，勿超过 115） |
@@ -187,3 +208,5 @@ HTTPS_PROXY=http://127.0.0.1:7890,HTTP_PROXY=http://127.0.0.1:7890,NODE_USE_ENV_
 
 同目录下的 `AGENTS.md` 记录了实现细节：ACP 协议对照表、回报链路的演进与坑、
 watch 模式的游标机制、本机部署事实与探针记录。二次开发前建议先读它。
+
+版本变更见 [CHANGELOG.md](CHANGELOG.md)。

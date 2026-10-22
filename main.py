@@ -8,7 +8,7 @@ import time
 
 from astrbot.api import AstrBotConfig, logger, llm_tool
 from astrbot.api.event import AstrMessageEvent, MessageChain
-from astrbot.api.event.filter import EventMessageType, event_message_type, on_astrbot_loaded
+from astrbot.api.event.filter import command, on_astrbot_loaded
 from astrbot.api.message_components import At, Plain
 from astrbot.api.star import Context, Star
 from astrbot.core.platform.astrbot_message import AstrBotMessage, Group, MessageMember
@@ -139,7 +139,50 @@ class DshAcpPlugin(Star):
             return default
 
     def _key(self, event: AstrMessageEvent) -> str:
+        # 短提醒是我们自己合成的事件，sender 是桥接身份或 bot 自己，与最初下任务的
+        # 用户不是同一个；不带上原键就会查到另一条（或空的）记录，取不到待读回报。
+        override = event.get_extra("dsh_acp_key")
+        if isinstance(override, str) and override:
+            return override
         return f"{event.unified_msg_origin}|{event.get_sender_id()}"
+
+    def _is_trusted(self, event: AstrMessageEvent) -> bool:
+        """是否为插件自己合成的短提醒事件（非用户输入，不参与管理员校验）。"""
+        return bool(event.get_extra("dsh_acp_trusted"))
+
+    def _bool_cfg(self, key: str, default: bool) -> bool:
+        raw = self._cfg(key, default)
+        if raw is None:
+            return default
+        if isinstance(raw, str):
+            text = raw.strip().lower()
+            if not text:
+                return default
+            return text not in ("false", "0", "no", "off")
+        return bool(raw)
+
+    def _admin_denied(self, event: AstrMessageEvent) -> bool:
+        """按 AstrBot 内置 shell 工具的口径做管理员校验；返回是否拒绝。"""
+        if not self._bool_cfg("require_admin", True):
+            return False
+        if event.is_admin() or self._is_trusted(event):
+            return False
+        return True
+
+    def _deny_llm(self, event: AstrMessageEvent, operation: str) -> str:
+        return (
+            f"error: Permission denied. {operation} is only allowed for admin users. "
+            "Tell user to set admins in `AstrBot WebUI -> Config -> General Config` "
+            "by adding their user ID to the admins list if they need this feature. "
+            f"User's ID is: {event.get_sender_id()}. User's ID can be found by using /sid command."
+        )
+
+    def _deny_chat(self, event: AstrMessageEvent) -> str:
+        return (
+            "❌ DSH 指令仅管理员可用。\n"
+            f"你的 ID: {event.get_sender_id()}（也可用 /sid 查看）\n"
+            "如需使用，请让管理员在 WebUI → 平台配置 → 通用 → 管理员 ID 中加入该 ID。"
+        )
 
     def _new_record(self, event: AstrMessageEvent) -> dict:
         return {
@@ -324,7 +367,12 @@ class DshAcpPlugin(Star):
         return ident
 
     async def _relay_llm(
-        self, umo: str, sid: str, text: str, record_text: str | None = None
+        self,
+        umo: str,
+        sid: str,
+        text: str,
+        record_text: str | None = None,
+        origin_key: str = "",
     ) -> bool:
         parts = umo.split(":", 2)
         if len(parts) != 3:
@@ -398,6 +446,11 @@ class DshAcpPlugin(Star):
             bot=inst.get_client(),
         )
         event.is_wake = True
+        # 短提醒不是用户输入：打上标记供工具做权限判定，并记住它属于哪条聊天记录，
+        # 否则 bot 调 dsh(op='reports') 时会按 dsh-bridge 这个 sender 去查另一条记录。
+        event.set_extra("dsh_acp_trusted", True)
+        if origin_key:
+            event.set_extra("dsh_acp_key", origin_key)
         self.context.get_event_queue().put_nowait(event)
         return True
 
@@ -417,7 +470,7 @@ class DshAcpPlugin(Star):
         elif mode == "llm":
             umo = (self._registry.get(key) or {}).get("umo", "")
             try:
-                if await self._relay_llm(umo, sid, body):
+                if await self._relay_llm(umo, sid, body, origin_key=key):
                     return
             except Exception as exc:
                 logger.warning(f"dsh_acp: LLM 回调派发失败，退回直推: {exc}")
@@ -489,6 +542,7 @@ class DshAcpPlugin(Star):
                 sid,
                 self._render_notify(sid, title, reason, model, count, True),
                 record_text=self._render_notify(sid, title, reason, model, count, False),
+                origin_key=key,
             ):
                 return True
         except Exception as exc:
@@ -875,8 +929,9 @@ class DshAcpPlugin(Star):
             tag = f"（新工作区会话 · {os.path.basename(os.path.normpath(ws_given))}）"
         return f"✅ 已提交 DSH（{_short_id(sid)}…）{tag}，完成后回报；期间可 /dsh status 查看、/dsh stop 终止。"
 
-    @event_message_type(EventMessageType.ALL, priority=500)
+    @command("dsh", alias={"/dsh"}, priority=500)
     async def dsh_entry(self, event: AstrMessageEvent):
+        """DSH 指令入口：/dsh <子命令|任务>，子命令目录见 /dsh help。"""
         text = (event.message_str or "").strip()
         match = DSH_RE.match(text)
         if match is None:
@@ -884,6 +939,9 @@ class DshAcpPlugin(Star):
         event.stop_event()
         sub = (match.group(1) or "").strip()
         rest = (match.group(2) or "").strip()
+        if self._admin_denied(event):
+            yield event.plain_result(self._deny_chat(event))
+            return
         try:
             if sub in ("", "help"):
                 result = HELP_TEXT
@@ -1351,7 +1409,7 @@ class DshAcpPlugin(Star):
         elif mode == "llm":
             umo = (self._registry.get(key) or {}).get("umo", "")
             try:
-                if await self._relay_llm(umo, sid, body):
+                if await self._relay_llm(umo, sid, body, origin_key=key):
                     return
             except Exception as exc:
                 logger.warning(f"dsh_acp: 监视回报 LLM 派发失败，退回直推: {exc}")
@@ -1477,6 +1535,8 @@ class DshAcpPlugin(Star):
             workspace(string): 可选；本次任务的工作区绝对路径（不存在自动创建）。留空沿用当前会话；指定时本聊天已有该工作区的会话则恢复它
         """
         foreground = str(mode or "background").strip().lower() in ("foreground", "fg", "sync", "前台")
+        if self._admin_denied(event):
+            return self._deny_llm(event, "DSH task delegation")
         try:
             return await self._submit(event, task, interrupt=False, foreground=foreground, workspace=str(workspace or ""))
         except AcpError as exc:
@@ -1495,6 +1555,8 @@ class DshAcpPlugin(Star):
         op = str(op or "").strip().lower()
         flag = str(flag or "").strip().lower()
         op = op_catalog.resolve(op)
+        if self._admin_denied(event):
+            return self._deny_llm(event, "DSH operations")
         try:
             if op == "status":
                 return self._cmd_status(event)

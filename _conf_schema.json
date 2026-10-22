@@ -33,6 +33,12 @@
   ],
   "hint": "DSH 桥的权限是一次性 allow/reject 反向请求，不应答会永久挂起该轮"
  },
+ "require_admin": {
+  "description": "仅管理员可触发",
+  "type": "bool",
+  "default": true,
+  "hint": "开启后，非管理员发送的 /dsh 指令与触发的 DSH 工具调用一律拒绝（口径同 AstrBot 内置 shell 工具，判定依据 WebUI 里的管理员 ID 列表）；插件自己派发的完成回报不受影响"
+ },
  "prompt_timeout_sec": {
   "description": "单轮超时秒数",
   "type": "int",
