@@ -1,0 +1,127 @@
+{
+ "dsh_repo_root": {
+  "description": "DSH 仓库根目录",
+  "type": "string",
+  "default": "",
+  "hint": "必填，绝对路径。指向 DSH 源码仓库根，插件以其 apps/cli/lib/bin.js 启动 ACP server（子进程 cwd 也在这里）"
+ },
+ "node_bin": {
+  "description": "node.exe 路径",
+  "type": "string",
+  "default": "",
+  "hint": "留空则自动从 PATH 探测 node"
+ },
+ "dsh_profile": {
+  "description": "DSH profile 名",
+  "type": "string",
+  "default": "acp",
+  "hint": "官方 acp profile（等同 dsh --profile acp），持久化到 ~/.dsh/profiles/acp"
+ },
+ "default_workspace": {
+  "description": "默认工作区（绝对路径，可留空）",
+  "type": "string",
+  "default": "",
+  "hint": "bot 不传工作区新建会话时的兜底目录；留空＝未配置默认工作区，此时新建会话会返回提示要求显式指定工作区"
+ },
+ "permission_policy": {
+  "description": "权限请求自动应答",
+  "type": "string",
+  "default": "allow",
+  "options": [
+   "allow",
+   "reject"
+  ],
+  "hint": "DSH 桥的权限是一次性 allow/reject 反向请求，不应答会永久挂起该轮"
+ },
+ "prompt_timeout_sec": {
+  "description": "单轮超时秒数",
+  "type": "int",
+  "default": 0,
+  "hint": "0 = 不限时（长任务推荐），此时用 /dsh stop 主动终止"
+ },
+ "preferred_model": {
+  "description": "首选模型目录值",
+  "type": "string",
+  "default": "",
+  "hint": "新建会话后自动写入的 model 选项值（/dsh model 可查可选项），留空跟随 server 默认"
+ },
+ "preferred_reasoning_effort": {
+  "description": "首选 reasoning effort",
+  "type": "string",
+  "default": "",
+  "hint": "reasoning_effort 选项值，留空跟随模型默认"
+ },
+ "auto_apply_preferred": {
+  "description": "新会话自动应用首选模型/effort",
+  "type": "bool",
+  "default": true
+ },
+ "push_progress": {
+  "description": "推送工具调用动态",
+  "type": "bool",
+  "default": false,
+  "hint": "开启后每条工具调用会实时推送一行进度；最终结果始终回调"
+ },
+ "max_report_chars": {
+  "description": "完成回报最大长度",
+  "type": "int",
+  "default": 3500
+ },
+ "env_extra": {
+  "description": "注入子进程的环境变量",
+  "type": "string",
+  "default": "",
+  "hint": "格式 KEY=VALUE,KEY2=VALUE2（值内不能有逗号）；最典型用途：注入 DEEPSEEK_API_KEY，或本机代理三件套 HTTPS_PROXY=http://127.0.0.1:7897,HTTP_PROXY=http://127.0.0.1:7897,NODE_USE_ENV_PROXY=1（Node 工具 web_fetch 不吃系统代理，必须显式注入；NO_PROXY 继承 AstrBot 进程自带值）"
+ },
+ "desktop_registry_sync": {
+  "description": "ACP 会话同步登记到桌面端工作区",
+  "type": "bool",
+  "default": true,
+  "hint": "开启后 bot 建的会话会追加进 ~/.dsh/storages/workspace.json 对应工作区的 sessionIds，桌面/Web 端立即可见（仅登记已存在的工作区，不新建工作区条目；与桌面 server 并发写有小窗口冲突，失败仅告警不影响会话）"
+ },
+ "report_mode": {
+  "description": "任务完成回报方式",
+  "type": "string",
+  "default": "pull",
+  "options": [
+   "pull",
+   "llm",
+   "direct"
+  ],
+  "hint": "pull=回报先入待读队列，只发一条 XML 短提醒唤起 bot，由 bot 调 dsh(op='reports') 取正文转述（推荐，正文不进记忆）；llm=直接把正文塞进 LLM 回调（旧行为，正文会进记忆）；direct=直接推送原文不经过 LLM"
+ },
+ "notify_identity": {
+  "description": "短提醒的发送者身份",
+  "type": "string",
+  "default": "bridge",
+  "options": [
+   "bridge",
+   "self"
+  ],
+  "hint": "bridge=以虚拟身份「DSH 桥」发出（会在长期记忆里留下该人物节点）；self=以 bot 自己身份发出，长期记忆自动跳过捕获（依赖平台设置 ignore_bot_self_message=false，该开关被打开时提醒会静默失效）"
+ },
+ "max_pending_reports": {
+  "description": "待读回报保留条数",
+  "type": "int",
+  "default": 20,
+  "hint": "每聊天键最多保留这么多条待读回报，超出后丢弃最旧的；0 表示不限制"
+ },
+ "tail_chars": {
+  "description": "接手会话时尾部消息最大字符数",
+  "type": "int",
+  "default": 1200
+ },
+ "foreground_budget_sec": {
+  "description": "前台模式等待预算秒数",
+  "type": "int",
+  "default": 110,
+  "hint": "超时自动转后台继续（AstrBot 工具执行硬上限约 120s，勿设超过 115）"
+ },
+ "watch_interval": {
+  "description": "会话监视轮询间隔（秒）",
+  "type": "int",
+  "default": 8,
+  "minimum": 3,
+  "hint": "watch 模式每隔这么久读一次会话日志，发现有新完成的轮次就回报到聊天；只读监视，不影响桌面/Web 端继续使用该会话"
+ }
+}

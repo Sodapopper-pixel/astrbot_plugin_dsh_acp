@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# 本地运行时数据（不要提交）
+plugin_data/
+# AstrBot 按 cwd 解析数据根时会在插件目录生成 data/（含 cmd_config.json 等密钥），必须排除
+/data/
+*.log
+registry.json
+*.bak
+*.bak-*
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.swp
